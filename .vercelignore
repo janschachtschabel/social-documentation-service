@@ -1,0 +1,18 @@
+# Dateien die nicht zu Vercel deployed werden
+
+# Setup Scripts (nur für lokale Nutzung)
+scripts/
+
+# Dokumentation (optional, spart Speicher)
+*.md
+!README.md
+
+# Development files
+.env.local.example
+tsconfig.json
+
+# Tests (falls vorhanden)
+**/*.test.ts
+**/*.test.tsx
+**/*.spec.ts
+**/*.spec.tsx

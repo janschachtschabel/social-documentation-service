@@ -22,6 +22,18 @@ Eine KI-gestützte Web-Anwendung für Sozialarbeiter und Erzieher zur Verwaltung
 - **Administrator**: Vollzugriff inkl. Benutzerverwaltung
 - **Sozialarbeiter**: Zugriff auf alle Dokumentationsfunktionen
 
+## ⚠️ WICHTIG: Erstes Deployment
+
+**Beim ersten Deployment muss die Datenbank-Struktur eingerichtet werden!**
+
+📖 **Vollständige Anleitung:** Siehe [`FIRST_DEPLOYMENT.md`](./FIRST_DEPLOYMENT.md)
+
+**Kurz:**
+1. Supabase Schema ausführen (`supabase/schema.sql`)
+2. Test-Benutzer erstellen (via `npm run setup:db` oder manuell)
+3. Environment Variables in Vercel setzen
+4. Deployen
+
 ## Tech Stack
 
 - **Frontend**: Next.js 14 (App Router), React, TypeScript
