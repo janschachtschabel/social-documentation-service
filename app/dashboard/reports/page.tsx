@@ -278,6 +278,7 @@ export default function ReportsPage() {
           }}
           onSave={handleSaveReport}
           clientName={clients.find((c) => c.id === selectedClientId)?.name || ''}
+          clientId={selectedClientId}
         />
       )}
 
