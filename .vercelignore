@@ -1,7 +1,8 @@
 # Dateien die nicht zu Vercel deployed werden
 
-# Setup Scripts (nur für lokale Nutzung)
-scripts/
+# Setup Scripts (nur setup-database.js ausschließen)
+scripts/setup-database.js
+scripts/setup-database.ts
 
 # Dokumentation (optional, spart Speicher)
 *.md
@@ -9,7 +10,6 @@ scripts/
 
 # Development files
 .env.local.example
-tsconfig.json
 
 # Tests (falls vorhanden)
 **/*.test.ts
