@@ -60,6 +60,9 @@ interface Report {
   title: string;
   content: string;
   created_at: string;
+  metadata?: {
+    rawTranscript?: string;
+  };
 }
 
 export default function ClientDetailPage() {
@@ -83,6 +86,8 @@ export default function ClientDetailPage() {
   const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [editingSession, setEditingSession] = useState<Session | null>(null);
+  const [editingReport, setEditingReport] = useState<Report | null>(null);
+  const [sessionDate, setSessionDate] = useState<string>(new Date().toISOString().split('T')[0]);
 
   useEffect(() => {
     loadClientData();
@@ -222,6 +227,7 @@ export default function ClientDetailPage() {
         const { data, error } = await supabase
           .from('sessions')
           .update({
+            session_date: `${sessionDate}T${new Date().toISOString().split('T')[1]}`,
             current_status: parsed.current_status || '',
             actions_taken: parsed.actions_taken || '',
             next_steps: parsed.next_steps || '',
@@ -236,12 +242,12 @@ export default function ClientDetailPage() {
         sessionData = data;
         insertError = error;
       } else {
-        // Create new session
+        // Create new session with selected date
         const { data, error } = await supabase
           .from('sessions')
           .insert({
             client_id: clientId,
-            session_date: new Date().toISOString(),
+            session_date: `${sessionDate}T${new Date().toISOString().split('T')[1]}`,
             current_status: parsed.current_status || '',
             actions_taken: parsed.actions_taken || '',
             next_steps: parsed.next_steps || '',
@@ -278,6 +284,7 @@ export default function ClientDetailPage() {
       setOpenSessionDialog(false);
       setTranscript('');
       setEditingSession(null);
+      setSessionDate(new Date().toISOString().split('T')[0]);
       await loadClientData();
     } catch (err: any) {
       setError(err.message || 'Fehler beim Erstellen des Termins');
@@ -306,23 +313,99 @@ export default function ClientDetailPage() {
     await loadClientData();
   };
 
-  const handleSaveReport = async (formData: ReportFormData) => {
-    const { error: insertError } = await supabase
-      .from('reports')
-      .insert({
-        client_id: clientId,
-        report_type: formData.reportType,
-        title: formData.title,
-        content: formData.content,
-        metadata: { rawTranscript: formData.rawTranscript },
-        created_by: user?.id,
-      });
+  const handleDeleteAnamnesis = async () => {
+    if (!confirm('Möchten Sie die Anamnese wirklich löschen?')) return;
 
-    if (insertError) {
-      throw new Error(insertError.message);
+    if (!client) return;
+
+    const { anamnesis, ...restProfileData } = client.profile_data || {};
+
+    const { error: updateError } = await supabase
+      .from('clients')
+      .update({ profile_data: restProfileData })
+      .eq('id', clientId);
+
+    if (updateError) {
+      setError(updateError.message);
+    } else {
+      await loadClientData();
+    }
+  };
+
+  const handleSaveReport = async (formData: ReportFormData) => {
+    let finalContent = formData.content;
+    let finalTitle = formData.title;
+
+    // Smart generation for interim/final reports if content exists
+    if ((formData.reportType === 'interim' || formData.reportType === 'final') && formData.content) {
+      try {
+        const generateResponse = await fetch('/api/generate-report-smart', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            reportType: formData.reportType,
+            clientId,
+            transcript: formData.content,
+            existingContent: editingReport?.content || '',
+          }),
+        });
+
+        if (generateResponse.ok) {
+          const { content: generatedContent } = await generateResponse.json();
+          finalContent = generatedContent;
+          finalTitle = formData.title || (formData.reportType === 'interim' ? 'Zwischenbericht' : 'Abschlussbericht');
+        }
+      } catch (err) {
+        // Fallback: Use user's content as-is
+        console.error('Smart generation failed, using user content:', err);
+      }
+    }
+
+    // Ensure title is set
+    if (!finalTitle) {
+      finalTitle = formData.reportType === 'anamnese' ? 'Anamnese-Bericht' : 
+                   formData.reportType === 'interim' ? 'Zwischenbericht' : 'Abschlussbericht';
+    }
+
+    if (editingReport) {
+      // Update existing report
+      const { error: updateError } = await supabase
+        .from('reports')
+        .update({
+          report_type: formData.reportType,
+          title: finalTitle,
+          content: finalContent,
+          metadata: { 
+            rawTranscript: editingReport.metadata?.rawTranscript 
+              ? `${editingReport.metadata.rawTranscript}\n\n---\n\n${formData.rawTranscript}`
+              : formData.rawTranscript 
+          },
+        })
+        .eq('id', editingReport.id);
+
+      if (updateError) {
+        throw new Error(updateError.message);
+      }
+    } else {
+      // Create new report
+      const { error: insertError } = await supabase
+        .from('reports')
+        .insert({
+          client_id: clientId,
+          report_type: formData.reportType,
+          title: finalTitle,
+          content: finalContent,
+          metadata: { rawTranscript: formData.rawTranscript },
+          created_by: user?.id,
+        });
+
+      if (insertError) {
+        throw new Error(insertError.message);
+      }
     }
 
     setOpenReportDialog(false);
+    setEditingReport(null);
     await loadClientData();
   };
 
@@ -496,14 +579,26 @@ export default function ClientDetailPage() {
                 </Typography>
                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                   {/* Anamnese VOR Terminen */}
-                  <Button
-                    variant={client.profile_data?.anamnesis ? 'outlined' : 'contained'}
-                    startIcon={<DescriptionIcon />}
-                    onClick={() => setOpenAnamnesisDialog(true)}
-                    color={client.profile_data?.anamnesis ? 'primary' : 'success'}
-                  >
-                    {client.profile_data?.anamnesis ? 'Anamnese bearbeiten' : 'Anamnese erstellen'}
-                  </Button>
+                  <Box sx={{ display: 'flex', gap: 1 }}>
+                    <Button
+                      variant={client.profile_data?.anamnesis ? 'outlined' : 'contained'}
+                      startIcon={<DescriptionIcon />}
+                      onClick={() => setOpenAnamnesisDialog(true)}
+                      color={client.profile_data?.anamnesis ? 'primary' : 'success'}
+                      fullWidth
+                    >
+                      {client.profile_data?.anamnesis ? 'Anamnese bearbeiten' : 'Anamnese erstellen'}
+                    </Button>
+                    {client.profile_data?.anamnesis && (
+                      <IconButton
+                        color="error"
+                        onClick={handleDeleteAnamnesis}
+                        size="small"
+                      >
+                        <DeleteIcon />
+                      </IconButton>
+                    )}
+                  </Box>
                   
                   <Button
                     variant="outlined"
@@ -633,14 +728,27 @@ export default function ClientDetailPage() {
                             color="primary"
                           />
                         </Box>
-                        <IconButton
-                          size="small"
-                          color="error"
-                          onClick={() => handleDeleteReport(report.id)}
-                          disabled={deletingId === report.id}
-                        >
-                          <DeleteIcon />
-                        </IconButton>
+                        <Box sx={{ display: 'flex', gap: 0.5 }}>
+                          <IconButton
+                            size="small"
+                            color="primary"
+                            onClick={() => {
+                              setEditingReport(report);
+                              setOpenReportDialog(true);
+                            }}
+                            disabled={deletingId === report.id}
+                          >
+                            <EditIcon />
+                          </IconButton>
+                          <IconButton
+                            size="small"
+                            color="error"
+                            onClick={() => handleDeleteReport(report.id)}
+                            disabled={deletingId === report.id}
+                          >
+                            <DeleteIcon />
+                          </IconButton>
+                        </Box>
                       </Box>
                       <Typography variant="body2" color="text.secondary" gutterBottom>
                         {new Date(report.created_at).toLocaleDateString('de-DE')}
@@ -684,6 +792,17 @@ export default function ClientDetailPage() {
                 )}
               </Box>
             )}
+
+            <TextField
+              fullWidth
+              type="date"
+              label="Termin-Datum"
+              value={sessionDate}
+              onChange={(e) => setSessionDate(e.target.value)}
+              InputLabelProps={{ shrink: true }}
+              sx={{ mb: 2 }}
+              helperText="Standard ist das aktuelle Datum"
+            />
 
             <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
               <IconButton
@@ -734,10 +853,19 @@ export default function ClientDetailPage() {
       {/* Report Dialog */}
       <ReportDialog
         open={openReportDialog}
-        onClose={() => setOpenReportDialog(false)}
+        onClose={() => {
+          setOpenReportDialog(false);
+          setEditingReport(null);
+        }}
         onSave={handleSaveReport}
         clientName={client?.name || ''}
         clientId={clientId}
+        initialData={editingReport ? {
+          reportType: editingReport.report_type as 'anamnese' | 'interim' | 'final',
+          title: editingReport.title,
+          content: editingReport.content,
+          rawTranscript: editingReport.metadata?.rawTranscript || '',
+        } : undefined}
       />
     </Box>
   );

@@ -147,7 +147,9 @@ export default function ClientsPage() {
   };
 
   const handleDeleteClient = async (clientId: string, clientName: string) => {
-    if (!confirm(`Möchten Sie den Klienten "${clientName}" wirklich löschen? Diese Aktion kann nicht rückgängig gemacht werden.`)) {
+    const confirmMessage = `ACHTUNG: Möchten Sie den Klienten "${clientName}" wirklich DAUERHAFT löschen?\n\nDies löscht auch:\n- Alle Termine\n- Alle Berichte\n- Die Anamnese\n- Alle Fortschrittsindikatoren\n\nDiese Aktion kann NICHT rückgängig gemacht werden!`;
+    
+    if (!confirm(confirmMessage)) {
       return;
     }
 
@@ -318,21 +320,19 @@ export default function ClientsPage() {
                           <VisibilityIcon />
                         </IconButton>
                       </Tooltip>
-                      {user?.role === 'admin' && (
-                        <Tooltip title="Klient löschen">
-                          <IconButton
-                            size="small"
-                            color="error"
-                            disabled={deletingClient === client.id}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleDeleteClient(client.id, client.name);
-                            }}
-                          >
-                            <DeleteIcon />
-                          </IconButton>
-                        </Tooltip>
-                      )}
+                      <Tooltip title="Klient löschen">
+                        <IconButton
+                          size="small"
+                          color="error"
+                          disabled={deletingClient === client.id}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteClient(client.id, client.name);
+                          }}
+                        >
+                          <DeleteIcon />
+                        </IconButton>
+                      </Tooltip>
                     </Box>
                   </TableCell>
                 </TableRow>

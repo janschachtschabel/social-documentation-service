@@ -90,54 +90,17 @@ export default function ReportDialog({
 
           const { transcript: transcribedText } = await transcribeResponse.json();
           
-          // Generate report with AI using all client data
-          if (formData.reportType === 'interim' || formData.reportType === 'final') {
-            const generateResponse = await fetch('/api/generate-report-smart', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                reportType: formData.reportType,
-                clientId,
-                transcript: transcribedText,
-                existingContent: formData.content,
-              }),
-            });
-
-            if (generateResponse.ok) {
-              const { content: generatedContent } = await generateResponse.json();
-              setFormData((prev) => ({
-                ...prev,
-                content: prev.content 
-                  ? `${prev.content}\n\n${generatedContent}` 
-                  : generatedContent,
-                rawTranscript: prev.rawTranscript 
-                  ? `${prev.rawTranscript}\n\n${transcribedText}` 
-                  : transcribedText,
-              }));
-            } else {
-              // Fallback: Just append transcript
-              setFormData((prev) => ({
-                ...prev,
-                content: prev.content 
-                  ? `${prev.content}\n\n${transcribedText}` 
-                  : transcribedText,
-                rawTranscript: prev.rawTranscript 
-                  ? `${prev.rawTranscript}\n\n${transcribedText}` 
-                  : transcribedText,
-              }));
-            }
-          } else {
-            // Anamnese: Just append transcript
-            setFormData((prev) => ({
-              ...prev,
-              content: prev.content 
-                ? `${prev.content}\n\n${transcribedText}` 
-                : transcribedText,
-              rawTranscript: prev.rawTranscript 
-                ? `${prev.rawTranscript}\n\n${transcribedText}` 
-                : transcribedText,
-            }));
-          }
+          // Just append transcript - NO automatic generation
+          // User can see/edit notes before saving
+          setFormData((prev) => ({
+            ...prev,
+            content: prev.content 
+              ? `${prev.content}\n\n${transcribedText}` 
+              : transcribedText,
+            rawTranscript: prev.rawTranscript 
+              ? `${prev.rawTranscript}\n\n${transcribedText}` 
+              : transcribedText,
+          }));
         } catch (err: any) {
           setError(err.message || 'Fehler bei der Verarbeitung');
         }
