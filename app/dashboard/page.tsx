@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   Box,
   Grid,
@@ -26,6 +27,7 @@ interface DashboardStats {
 }
 
 export default function DashboardPage() {
+  const router = useRouter();
   const user = useAuthStore((state) => state.user);
   const [stats, setStats] = useState<DashboardStats>({
     totalClients: 0,
@@ -67,24 +69,28 @@ export default function DashboardPage() {
       value: stats.totalClients,
       icon: <PeopleIcon sx={{ fontSize: 40 }} />,
       color: '#1976d2',
+      link: '/dashboard/clients',
     },
     {
       title: 'Gesprächstermine',
       value: stats.totalSessions,
       icon: <EventIcon sx={{ fontSize: 40 }} />,
       color: '#9c27b0',
+      link: '/dashboard/clients',
     },
     {
       title: 'Erstellte Berichte',
       value: stats.totalReports,
       icon: <DescriptionIcon sx={{ fontSize: 40 }} />,
       color: '#2e7d32',
+      link: '/dashboard/reports',
     },
     {
       title: 'Termine (7 Tage)',
       value: stats.recentSessions,
       icon: <TrendingUpIcon sx={{ fontSize: 40 }} />,
       color: '#ed6c02',
+      link: '/dashboard/statistics',
     },
   ];
 
@@ -101,10 +107,17 @@ export default function DashboardPage() {
         {statCards.map((card) => (
           <Grid item xs={12} sm={6} md={3} key={card.title}>
             <Card
+              onClick={() => router.push(card.link)}
               sx={{
                 height: '100%',
                 display: 'flex',
                 flexDirection: 'column',
+                cursor: 'pointer',
+                transition: 'all 0.2s',
+                '&:hover': {
+                  transform: 'translateY(-4px)',
+                  boxShadow: 4,
+                },
               }}
             >
               <CardContent>

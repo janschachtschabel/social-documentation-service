@@ -18,13 +18,11 @@ export interface ParsedSessionData {
   };
 }
 
-export async function parseSessionTranscript(transcript: string): Promise<ParsedSessionData> {
-  const completion = await openai.chat.completions.create({
-    model: 'gpt-4-turbo-preview',
-    messages: [
-      {
-        role: 'system',
-        content: `Du bist ein Assistent für Sozialarbeiter. Analysiere das Gesprächsprotokoll und extrahiere folgende Informationen:
+export async function parseSessionTranscript(
+  transcript: string,
+  existingData?: Partial<ParsedSessionData>
+): Promise<ParsedSessionData> {
+  const systemPrompt = `Du bist ein Assistent für Sozialarbeiter. Analysiere das Gesprächsprotokoll und extrahiere folgende Informationen:
 1. Aktueller Stand (current_status): Wie ist die aktuelle Situation des Klienten?
 2. Vorgenommene Aktionen (actions_taken): Was wurde bereits unternommen?
 3. Nächste Schritte (next_steps): Was sind die geplanten nächsten Schritte?
@@ -37,7 +35,23 @@ Zusätzlich bewerte folgende Fortschrittsindikatoren auf einer Skala von 0-10:
 - family_situation (Familiensituation)
 - child_welfare (Kinderfürsorge)
 
-Gib die Antwort als JSON zurück.`,
+${existingData ? `
+**WICHTIG:** Es existieren bereits Daten für diesen Termin. Ergänze oder aktualisiere nur die Bereiche, die im neuen Transkript erwähnt werden. Bestehende Informationen sollen ERHALTEN bleiben und ergänzt werden, nicht überschrieben.
+
+Bestehende Daten:
+${JSON.stringify(existingData, null, 2)}
+
+Kombiniere die neuen Informationen MIT den bestehenden. Wenn ein Bereich im neuen Transkript nicht erwähnt wird, übernimm die bestehenden Daten.
+` : ''}
+
+Gib die Antwort als JSON zurück.`;
+
+  const completion = await openai.chat.completions.create({
+    model: 'gpt-4-turbo-preview',
+    messages: [
+      {
+        role: 'system',
+        content: systemPrompt,
       },
       {
         role: 'user',

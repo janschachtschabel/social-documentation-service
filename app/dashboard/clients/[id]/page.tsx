@@ -29,10 +29,13 @@ import {
   Stop as StopIcon,
   ArrowBack as ArrowBackIcon,
   Description as DescriptionIcon,
+  Delete as DeleteIcon,
+  Edit as EditIcon,
 } from '@mui/icons-material';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/store/useAuthStore';
 import AnamnesisDialog, { AnamnesisData } from '@/components/AnamnesisDialog';
+import ReportDialog, { ReportFormData } from '@/components/ReportDialog';
 
 interface Client {
   id: string;
@@ -72,11 +75,14 @@ export default function ClientDetailPage() {
   const [tabValue, setTabValue] = useState(0);
   const [openSessionDialog, setOpenSessionDialog] = useState(false);
   const [openAnamnesisDialog, setOpenAnamnesisDialog] = useState(false);
+  const [openReportDialog, setOpenReportDialog] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [transcript, setTranscript] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [editingSession, setEditingSession] = useState<Session | null>(null);
 
   useEffect(() => {
     loadClientData();
@@ -187,11 +193,18 @@ export default function ClientDetailPage() {
     setError('');
 
     try {
-      // Parse the transcript via API
+      // Parse the transcript via API with existing data if editing
+      const existingData = editingSession ? {
+        current_status: editingSession.current_status,
+        actions_taken: editingSession.actions_taken,
+        next_steps: editingSession.next_steps,
+        network_involvement: editingSession.network_involvement,
+      } : undefined;
+
       const response = await fetch('/api/parse-session', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ transcript }),
+        body: JSON.stringify({ transcript, existingData }),
       });
 
       const parsed = await response.json();
@@ -200,21 +213,47 @@ export default function ClientDetailPage() {
         throw new Error(parsed.error || 'Fehler beim Parsen');
       }
 
-      // Create session
-      const { data: sessionData, error: insertError } = await supabase
-        .from('sessions')
-        .insert({
-          client_id: clientId,
-          session_date: new Date().toISOString(),
-          current_status: parsed.current_status || '',
-          actions_taken: parsed.actions_taken || '',
-          next_steps: parsed.next_steps || '',
-          network_involvement: parsed.network_involvement || '',
-          raw_transcript: transcript,
-          created_by: user?.id,
-        })
-        .select()
-        .single();
+      // Create or update session
+      let sessionData;
+      let insertError;
+
+      if (editingSession) {
+        // Update existing session
+        const { data, error } = await supabase
+          .from('sessions')
+          .update({
+            current_status: parsed.current_status || '',
+            actions_taken: parsed.actions_taken || '',
+            next_steps: parsed.next_steps || '',
+            network_involvement: parsed.network_involvement || '',
+            raw_transcript: editingSession.raw_transcript 
+              ? `${editingSession.raw_transcript}\n\n---\n\n${transcript}`
+              : transcript,
+          })
+          .eq('id', editingSession.id)
+          .select()
+          .single();
+        sessionData = data;
+        insertError = error;
+      } else {
+        // Create new session
+        const { data, error } = await supabase
+          .from('sessions')
+          .insert({
+            client_id: clientId,
+            session_date: new Date().toISOString(),
+            current_status: parsed.current_status || '',
+            actions_taken: parsed.actions_taken || '',
+            next_steps: parsed.next_steps || '',
+            network_involvement: parsed.network_involvement || '',
+            raw_transcript: transcript,
+            created_by: user?.id,
+          })
+          .select()
+          .single();
+        sessionData = data;
+        insertError = error;
+      }
 
       if (insertError) {
         throw new Error(insertError.message);
@@ -238,6 +277,7 @@ export default function ClientDetailPage() {
 
       setOpenSessionDialog(false);
       setTranscript('');
+      setEditingSession(null);
       await loadClientData();
     } catch (err: any) {
       setError(err.message || 'Fehler beim Erstellen des Termins');
@@ -264,6 +304,68 @@ export default function ClientDetailPage() {
     }
 
     await loadClientData();
+  };
+
+  const handleSaveReport = async (formData: ReportFormData) => {
+    const { error: insertError } = await supabase
+      .from('reports')
+      .insert({
+        client_id: clientId,
+        report_type: formData.reportType,
+        title: formData.title,
+        content: formData.content,
+        metadata: { rawTranscript: formData.rawTranscript },
+        created_by: user?.id,
+      });
+
+    if (insertError) {
+      throw new Error(insertError.message);
+    }
+
+    setOpenReportDialog(false);
+    await loadClientData();
+  };
+
+  const handleDeleteSession = async (sessionId: string) => {
+    if (!confirm('Möchten Sie diesen Termin wirklich löschen?')) return;
+
+    setDeletingId(sessionId);
+    try {
+      const { error: deleteError } = await supabase
+        .from('sessions')
+        .delete()
+        .eq('id', sessionId);
+
+      if (deleteError) {
+        setError(deleteError.message);
+      } else {
+        await loadClientData();
+      }
+    } catch (err: any) {
+      setError(err.message || 'Fehler beim Löschen');
+    }
+    setDeletingId(null);
+  };
+
+  const handleDeleteReport = async (reportId: string) => {
+    if (!confirm('Möchten Sie diesen Bericht wirklich löschen?')) return;
+
+    setDeletingId(reportId);
+    try {
+      const { error: deleteError } = await supabase
+        .from('reports')
+        .delete()
+        .eq('id', reportId);
+
+      if (deleteError) {
+        setError(deleteError.message);
+      } else {
+        await loadClientData();
+      }
+    } catch (err: any) {
+      setError(err.message || 'Fehler beim Löschen');
+    }
+    setDeletingId(null);
   };
 
   const handleGenerateReport = async (reportType: 'anamnese' | 'interim' | 'final') => {
@@ -332,11 +434,33 @@ export default function ClientDetailPage() {
         </Alert>
       )}
 
-      <Tabs value={tabValue} onChange={(_, newValue) => setTabValue(newValue)} sx={{ mb: 3 }}>
-        <Tab label="Übersicht" />
-        <Tab label={`Termine (${sessions.length})`} />
-        <Tab label={`Berichte (${reports.length})`} />
-      </Tabs>
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3 }}>
+        <Tabs value={tabValue} onChange={(_, newValue) => setTabValue(newValue)}>
+          <Tab label="Übersicht" />
+          <Tab label={`Termine (${sessions.length})`} />
+          <Tab label={`Berichte (${reports.length})`} />
+        </Tabs>
+        
+        {tabValue === 1 && (
+          <Button
+            variant="contained"
+            startIcon={<AddIcon />}
+            onClick={() => setOpenSessionDialog(true)}
+          >
+            Neuer Termin
+          </Button>
+        )}
+        
+        {tabValue === 2 && (
+          <Button
+            variant="contained"
+            startIcon={<AddIcon />}
+            onClick={() => setOpenReportDialog(true)}
+          >
+            Neuer Bericht
+          </Button>
+        )}
+      </Box>
 
       {tabValue === 0 && (
         <Grid container spacing={3}>
@@ -392,18 +516,9 @@ export default function ClientDetailPage() {
                   <Button
                     variant="outlined"
                     startIcon={<DescriptionIcon />}
-                    onClick={() => handleGenerateReport('interim')}
-                    disabled={loading || sessions.length === 0}
+                    onClick={() => setOpenReportDialog(true)}
                   >
-                    Zwischenbericht erstellen
-                  </Button>
-                  <Button
-                    variant="outlined"
-                    startIcon={<DescriptionIcon />}
-                    onClick={() => handleGenerateReport('final')}
-                    disabled={loading || sessions.length === 0}
-                  >
-                    Abschlussbericht erstellen
+                    Bericht erstellen
                   </Button>
                 </Box>
               </CardContent>
@@ -433,7 +548,7 @@ export default function ClientDetailPage() {
                 {sessions.map((session) => (
                   <ListItem key={session.id} sx={{ flexDirection: 'column', alignItems: 'flex-start' }}>
                     <Box sx={{ width: '100%' }}>
-                      <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
                         <Typography variant="subtitle1">
                           {new Date(session.session_date).toLocaleDateString('de-DE', {
                             day: '2-digit',
@@ -443,6 +558,28 @@ export default function ClientDetailPage() {
                             minute: '2-digit',
                           })}
                         </Typography>
+                        <Box sx={{ display: 'flex', gap: 0.5 }}>
+                          <IconButton
+                            size="small"
+                            color="primary"
+                            onClick={() => {
+                              setEditingSession(session);
+                              setTranscript('');
+                              setOpenSessionDialog(true);
+                            }}
+                            disabled={deletingId === session.id}
+                          >
+                            <EditIcon />
+                          </IconButton>
+                          <IconButton
+                            size="small"
+                            color="error"
+                            onClick={() => handleDeleteSession(session.id)}
+                            disabled={deletingId === session.id}
+                          >
+                            <DeleteIcon />
+                          </IconButton>
+                        </Box>
                       </Box>
                       <Typography variant="body2" color="text.secondary" gutterBottom>
                         <strong>Aktueller Stand:</strong> {session.current_status}
@@ -481,19 +618,29 @@ export default function ClientDetailPage() {
                 {reports.map((report) => (
                   <ListItem key={report.id} sx={{ flexDirection: 'column', alignItems: 'flex-start' }}>
                     <Box sx={{ width: '100%' }}>
-                      <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                        <Typography variant="subtitle1">{report.title}</Typography>
-                        <Chip
-                          label={
-                            report.report_type === 'anamnese'
-                              ? 'Anamnese'
-                              : report.report_type === 'interim'
-                              ? 'Zwischenbericht'
-                              : 'Abschlussbericht'
-                          }
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                        <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                          <Typography variant="subtitle1">{report.title}</Typography>
+                          <Chip
+                            label={
+                              report.report_type === 'anamnese'
+                                ? 'Anamnese'
+                                : report.report_type === 'interim'
+                                ? 'Zwischenbericht'
+                                : 'Abschlussbericht'
+                            }
+                            size="small"
+                            color="primary"
+                          />
+                        </Box>
+                        <IconButton
                           size="small"
-                          color="primary"
-                        />
+                          color="error"
+                          onClick={() => handleDeleteReport(report.id)}
+                          disabled={deletingId === report.id}
+                        >
+                          <DeleteIcon />
+                        </IconButton>
                       </Box>
                       <Typography variant="body2" color="text.secondary" gutterBottom>
                         {new Date(report.created_at).toLocaleDateString('de-DE')}
@@ -510,10 +657,34 @@ export default function ClientDetailPage() {
         </Card>
       )}
 
-      <Dialog open={openSessionDialog} onClose={() => setOpenSessionDialog(false)} maxWidth="md" fullWidth>
-        <DialogTitle>Neuen Termin protokollieren</DialogTitle>
+      <Dialog open={openSessionDialog} onClose={() => {
+        setOpenSessionDialog(false);
+        setEditingSession(null);
+        setTranscript('');
+      }} maxWidth="md" fullWidth>
+        <DialogTitle>
+          {editingSession ? 'Termin ergänzen/aktualisieren' : 'Neuen Termin protokollieren'}
+        </DialogTitle>
         <DialogContent>
           <Box sx={{ mt: 2 }}>
+            {editingSession && (
+              <Alert severity="info" sx={{ mb: 2 }}>
+                Sie bearbeiten einen bestehenden Termin. Ihre neuen Notizen werden mit den vorhandenen Informationen zusammengeführt.
+              </Alert>
+            )}
+
+            {editingSession && (
+              <Box sx={{ mb: 2, p: 2, bgcolor: 'grey.100', borderRadius: 1 }}>
+                <Typography variant="subtitle2" gutterBottom>Bestehende Daten:</Typography>
+                <Typography variant="body2"><strong>Status:</strong> {editingSession.current_status}</Typography>
+                <Typography variant="body2"><strong>Aktionen:</strong> {editingSession.actions_taken}</Typography>
+                <Typography variant="body2"><strong>Nächste Schritte:</strong> {editingSession.next_steps}</Typography>
+                {editingSession.network_involvement && (
+                  <Typography variant="body2"><strong>Netzwerk:</strong> {editingSession.network_involvement}</Typography>
+                )}
+              </Box>
+            )}
+
             <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
               <IconButton
                 color={isRecording ? 'error' : 'primary'}
@@ -523,7 +694,7 @@ export default function ClientDetailPage() {
                 {isRecording ? <StopIcon /> : <MicIcon />}
               </IconButton>
               <Typography variant="body2" color="text.secondary" sx={{ alignSelf: 'center' }}>
-                {isRecording ? 'Aufnahme läuft...' : 'Klicken Sie auf das Mikrofon für Spracheingabe'}
+                {isRecording ? 'Aufnahme läuft...' : editingSession ? 'Ergänzen Sie weitere Notizen per Mikrofon' : 'Klicken Sie auf das Mikrofon für Spracheingabe'}
               </Typography>
             </Box>
 
@@ -534,15 +705,19 @@ export default function ClientDetailPage() {
               label="Gesprächsnotizen"
               value={transcript}
               onChange={(e) => setTranscript(e.target.value)}
-              placeholder="Beschreiben Sie den aktuellen Stand, vorgenommene Aktionen, nächste Schritte und Netzwerkeinbezug..."
-              helperText="Die KI wird die Informationen automatisch in die richtigen Felder einordnen."
+              placeholder={editingSession ? 'Ergänzen Sie weitere Informationen...' : 'Beschreiben Sie den aktuellen Stand, vorgenommene Aktionen, nächste Schritte und Netzwerkeinbezug...'}
+              helperText={editingSession ? 'Ihre Ergänzungen werden mit den bestehenden Daten zusammengeführt.' : 'Die KI wird die Informationen automatisch in die richtigen Felder einordnen.'}
             />
           </Box>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setOpenSessionDialog(false)}>Abbrechen</Button>
+          <Button onClick={() => {
+            setOpenSessionDialog(false);
+            setEditingSession(null);
+            setTranscript('');
+          }}>Abbrechen</Button>
           <Button onClick={handleCreateSession} variant="contained" disabled={loading}>
-            {loading ? 'Erstelle...' : 'Termin speichern'}
+            {loading ? (editingSession ? 'Aktualisiert...' : 'Erstelle...') : (editingSession ? 'Änderungen speichern' : 'Termin speichern')}
           </Button>
         </DialogActions>
       </Dialog>
@@ -554,6 +729,15 @@ export default function ClientDetailPage() {
         onSave={handleSaveAnamnesis}
         initialData={client?.profile_data?.anamnesis}
         clientName={client?.name || ''}
+      />
+
+      {/* Report Dialog */}
+      <ReportDialog
+        open={openReportDialog}
+        onClose={() => setOpenReportDialog(false)}
+        onSave={handleSaveReport}
+        clientName={client?.name || ''}
+        clientId={clientId}
       />
     </Box>
   );

@@ -3,7 +3,7 @@ import { parseSessionTranscript } from '@/lib/openai';
 
 export async function POST(request: NextRequest) {
   try {
-    const { transcript } = await request.json();
+    const { transcript, existingData } = await request.json();
 
     if (!transcript) {
       return NextResponse.json(
@@ -12,7 +12,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const parsed = await parseSessionTranscript(transcript);
+    const parsed = await parseSessionTranscript(transcript, existingData);
 
     return NextResponse.json(parsed);
   } catch (error: any) {

@@ -166,6 +166,7 @@ export default function UsersPage() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
+              helperText="Hinweis: Verwenden Sie keine example.com Domain. Nutzen Sie eine echte Domain oder test.local"
             />
 
             <TextField
