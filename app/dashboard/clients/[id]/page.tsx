@@ -88,6 +88,8 @@ export default function ClientDetailPage() {
   const [editingSession, setEditingSession] = useState<Session | null>(null);
   const [editingReport, setEditingReport] = useState<Report | null>(null);
   const [sessionDate, setSessionDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [parsedSessionData, setParsedSessionData] = useState<any>(null);
+  const [showParsedResult, setShowParsedResult] = useState(false);
 
   useEffect(() => {
     loadClientData();
@@ -281,7 +283,9 @@ export default function ClientDetailPage() {
         }
       }
 
-      setOpenSessionDialog(false);
+      // Zeige geparste Daten an statt Dialog zu schließen
+      setParsedSessionData(parsed);
+      setShowParsedResult(true);
       setTranscript('');
       setEditingSession(null);
       setSessionDate(new Date().toISOString().split('T')[0]);
@@ -769,13 +773,59 @@ export default function ClientDetailPage() {
         setOpenSessionDialog(false);
         setEditingSession(null);
         setTranscript('');
+        setShowParsedResult(false);
+        setParsedSessionData(null);
       }} maxWidth="md" fullWidth>
         <DialogTitle>
-          {editingSession ? 'Termin ergänzen/aktualisieren' : 'Neuen Termin protokollieren'}
+          {showParsedResult ? '✅ Termin erfolgreich erstellt' : editingSession ? 'Termin ergänzen/aktualisieren' : 'Neuen Termin protokollieren'}
         </DialogTitle>
         <DialogContent>
           <Box sx={{ mt: 2 }}>
-            {editingSession && (
+            {showParsedResult && parsedSessionData ? (
+              <Box>
+                <Alert severity="success" sx={{ mb: 3 }}>
+                  Der Termin wurde erfolgreich gespeichert und die KI hat die Informationen strukturiert!
+                </Alert>
+                
+                <Typography variant="h6" gutterBottom sx={{ mb: 2 }}>📋 Geparste Daten:</Typography>
+                
+                <Box sx={{ bgcolor: 'grey.50', p: 3, borderRadius: 2, mb: 2 }}>
+                  <Typography variant="subtitle1" sx={{ mb: 1, fontWeight: 600, color: 'primary.main' }}>Aktueller Stand:</Typography>
+                  <Typography variant="body1" sx={{ mb: 3, pl: 2 }}>{parsedSessionData.current_status || '-'}</Typography>
+                  
+                  <Typography variant="subtitle1" sx={{ mb: 1, fontWeight: 600, color: 'primary.main' }}>Vorgenommene Aktionen:</Typography>
+                  <Typography variant="body1" sx={{ mb: 3, pl: 2 }}>{parsedSessionData.actions_taken || '-'}</Typography>
+                  
+                  <Typography variant="subtitle1" sx={{ mb: 1, fontWeight: 600, color: 'primary.main' }}>Nächste Schritte:</Typography>
+                  <Typography variant="body1" sx={{ mb: 3, pl: 2 }}>{parsedSessionData.next_steps || '-'}</Typography>
+                  
+                  {parsedSessionData.network_involvement && (
+                    <>
+                      <Typography variant="subtitle1" sx={{ mb: 1, fontWeight: 600, color: 'primary.main' }}>Netzwerkeinbezug:</Typography>
+                      <Typography variant="body1" sx={{ mb: 3, pl: 2 }}>{parsedSessionData.network_involvement}</Typography>
+                    </>
+                  )}
+                  
+                  {parsedSessionData.progress_indicators && Object.keys(parsedSessionData.progress_indicators).length > 0 && (
+                    <>
+                      <Typography variant="subtitle1" sx={{ mb: 1, fontWeight: 600, color: 'primary.main' }}>Fortschrittsindikatoren:</Typography>
+                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, pl: 2 }}>
+                        {Object.entries(parsedSessionData.progress_indicators).map(([key, value]: [string, any]) => (
+                          <Chip 
+                            key={key} 
+                            label={`${key}: ${value}/10`} 
+                            color="primary" 
+                            size="medium"
+                          />
+                        ))}
+                      </Box>
+                    </>
+                  )}
+                </Box>
+              </Box>
+            ) : (
+              <>
+                {editingSession && (
               <Alert severity="info" sx={{ mb: 2 }}>
                 Sie bearbeiten einen bestehenden Termin. Ihre neuen Notizen werden mit den vorhandenen Informationen zusammengeführt.
               </Alert>
@@ -827,17 +877,35 @@ export default function ClientDetailPage() {
               placeholder={editingSession ? 'Ergänzen Sie weitere Informationen...' : 'Beschreiben Sie den aktuellen Stand, vorgenommene Aktionen, nächste Schritte und Netzwerkeinbezug...'}
               helperText={editingSession ? 'Ihre Ergänzungen werden mit den bestehenden Daten zusammengeführt.' : 'Die KI wird die Informationen automatisch in die richtigen Felder einordnen.'}
             />
+              </>
+            )}
           </Box>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => {
-            setOpenSessionDialog(false);
-            setEditingSession(null);
-            setTranscript('');
-          }}>Abbrechen</Button>
-          <Button onClick={handleCreateSession} variant="contained" disabled={loading}>
-            {loading ? (editingSession ? 'Aktualisiert...' : 'Erstelle...') : (editingSession ? 'Änderungen speichern' : 'Termin speichern')}
-          </Button>
+          {showParsedResult ? (
+            <Button 
+              onClick={() => {
+                setOpenSessionDialog(false);
+                setShowParsedResult(false);
+                setParsedSessionData(null);
+              }} 
+              variant="contained"
+              fullWidth
+            >
+              ✓ Zurück zur Übersicht
+            </Button>
+          ) : (
+            <>
+              <Button onClick={() => {
+                setOpenSessionDialog(false);
+                setEditingSession(null);
+                setTranscript('');
+              }}>Abbrechen</Button>
+              <Button onClick={handleCreateSession} variant="contained" disabled={loading}>
+                {loading ? (editingSession ? 'Aktualisiert...' : 'Erstelle...') : (editingSession ? 'Änderungen speichern' : 'Termin speichern')}
+              </Button>
+            </>
+          )}
         </DialogActions>
       </Dialog>
 
