@@ -16,9 +16,15 @@ import {
   MenuItem,
   Grid,
   Button,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
 } from '@mui/material';
-import { Print as PrintIcon, Download as DownloadIcon } from '@mui/icons-material';
+import { Print as PrintIcon, Download as DownloadIcon, Add as AddIcon } from '@mui/icons-material';
 import { supabase } from '@/lib/supabase';
+import { useAuthStore } from '@/store/useAuthStore';
+import ReportDialog, { ReportFormData } from '@/components/ReportDialog';
 
 interface Report {
   id: string;
@@ -32,14 +38,25 @@ interface Report {
   };
 }
 
+interface Client {
+  id: string;
+  name: string;
+}
+
 export default function ReportsPage() {
+  const user = useAuthStore((state) => state.user);
   const [reports, setReports] = useState<Report[]>([]);
   const [filteredReports, setFilteredReports] = useState<Report[]>([]);
+  const [clients, setClients] = useState<Client[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [reportTypeFilter, setReportTypeFilter] = useState('all');
+  const [openReportDialog, setOpenReportDialog] = useState(false);
+  const [selectedClientId, setSelectedClientId] = useState<string>('');
+  const [error, setError] = useState('');
 
   useEffect(() => {
     loadReports();
+    loadClients();
   }, []);
 
   useEffect(() => {
@@ -59,6 +76,17 @@ export default function ReportsPage() {
 
     if (data) {
       setReports(data as any);
+    }
+  };
+
+  const loadClients = async () => {
+    const { data } = await supabase
+      .from('clients')
+      .select('id, name')
+      .order('name');
+
+    if (data) {
+      setClients(data);
     }
   };
 
@@ -116,6 +144,31 @@ export default function ReportsPage() {
     }
   };
 
+  const handleSaveReport = async (formData: ReportFormData) => {
+    if (!selectedClientId) {
+      throw new Error('Kein Klient ausgewählt');
+    }
+
+    const { error: insertError } = await supabase
+      .from('reports')
+      .insert({
+        client_id: selectedClientId,
+        report_type: formData.reportType,
+        title: formData.title,
+        content: formData.content,
+        metadata: { rawTranscript: formData.rawTranscript },
+        created_by: user?.id,
+      });
+
+    if (insertError) {
+      throw new Error(insertError.message);
+    }
+
+    setOpenReportDialog(false);
+    setSelectedClientId('');
+    await loadReports();
+  };
+
   const handleDownload = (report: Report) => {
     const content = `${report.title}\n\nKlient: ${report.clients.name}\nTyp: ${
       report.report_type === 'anamnese'
@@ -138,9 +191,18 @@ export default function ReportsPage() {
 
   return (
     <Box>
-      <Typography variant="h4" gutterBottom>
-        Berichte
-      </Typography>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+        <Typography variant="h4">
+          Berichte
+        </Typography>
+        <Button
+          variant="contained"
+          startIcon={<AddIcon />}
+          onClick={() => setOpenReportDialog(true)}
+        >
+          Neuer Bericht
+        </Button>
+      </Box>
 
       <Card sx={{ mb: 3 }}>
         <CardContent>
@@ -172,6 +234,52 @@ export default function ReportsPage() {
           </Grid>
         </CardContent>
       </Card>
+
+      {/* Client Selection Dialog */}
+      <Dialog open={openReportDialog && !selectedClientId} onClose={() => setOpenReportDialog(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Klient auswählen</DialogTitle>
+        <DialogContent>
+          <Box sx={{ mt: 2 }}>
+            <FormControl fullWidth>
+              <InputLabel>Klient</InputLabel>
+              <Select
+                value={selectedClientId}
+                label="Klient"
+                onChange={(e) => setSelectedClientId(e.target.value)}
+              >
+                {clients.map((client) => (
+                  <MenuItem key={client.id} value={client.id}>
+                    {client.name}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setOpenReportDialog(false)}>Abbrechen</Button>
+          <Button 
+            onClick={() => {/* selectedClientId is set, dialog will switch */}}
+            variant="contained"
+            disabled={!selectedClientId}
+          >
+            Weiter
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Report Dialog */}
+      {selectedClientId && (
+        <ReportDialog
+          open={openReportDialog}
+          onClose={() => {
+            setOpenReportDialog(false);
+            setSelectedClientId('');
+          }}
+          onSave={handleSaveReport}
+          clientName={clients.find((c) => c.id === selectedClientId)?.name || ''}
+        />
+      )}
 
       {filteredReports.length === 0 ? (
         <Card>

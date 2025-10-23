@@ -11,6 +11,8 @@ import {
   InputLabel,
   Select,
   MenuItem,
+  ToggleButtonGroup,
+  ToggleButton,
 } from '@mui/material';
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { supabase } from '@/lib/supabase';
@@ -29,6 +31,13 @@ interface ProgressData {
   child_welfare: number;
 }
 
+interface DemographicsData {
+  ageGroups: { name: string; count: number }[];
+  genders: { name: string; count: number }[];
+  nationalities: { name: string; count: number }[];
+  maritalStatuses: { name: string; count: number }[];
+}
+
 const indicatorLabels: { [key: string]: string } = {
   finances: 'Finanzen',
   health: 'Gesundheit',
@@ -42,9 +51,17 @@ export default function StatisticsPage() {
   const [selectedClient, setSelectedClient] = useState<string>('');
   const [progressData, setProgressData] = useState<ProgressData[]>([]);
   const [averageScores, setAverageScores] = useState<{ [key: string]: number }>({});
+  const [demographics, setDemographics] = useState<DemographicsData>({
+    ageGroups: [],
+    genders: [],
+    nationalities: [],
+    maritalStatuses: [],
+  });
+  const [view, setView] = useState<'demographics' | 'progress'>('demographics');
 
   useEffect(() => {
     loadClients();
+    loadDemographics();
   }, []);
 
   useEffect(() => {
@@ -65,6 +82,92 @@ export default function StatisticsPage() {
         setSelectedClient(data[0].id);
       }
     }
+  };
+
+  const loadDemographics = async () => {
+    const { data: allClients } = await supabase
+      .from('clients')
+      .select('profile_data');
+
+    if (!allClients) return;
+
+    // Age groups
+    const ageMap: { [key: string]: number } = {
+      'unter 18': 0,
+      '18-30': 0,
+      '31-50': 0,
+      'über 50': 0,
+      'Unbekannt': 0,
+    };
+
+    // Genders
+    const genderMap: { [key: string]: number } = {
+      'Männlich': 0,
+      'Weiblich': 0,
+      'Divers': 0,
+      'Keine Angabe': 0,
+    };
+
+    // Nationalities (top 5)
+    const nationalityMap: { [key: string]: number } = {};
+
+    // Marital status
+    const maritalMap: { [key: string]: number } = {};
+
+    allClients.forEach((client) => {
+      const data = client.profile_data;
+      
+      // Age
+      if (data?.age) {
+        const age = parseInt(data.age);
+        if (age < 18) ageMap['unter 18']++;
+        else if (age <= 30) ageMap['18-30']++;
+        else if (age <= 50) ageMap['31-50']++;
+        else ageMap['über 50']++;
+      } else {
+        ageMap['Unbekannt']++;
+      }
+
+      // Gender
+      if (data?.gender === 'male') genderMap['Männlich']++;
+      else if (data?.gender === 'female') genderMap['Weiblich']++;
+      else if (data?.gender === 'diverse') genderMap['Divers']++;
+      else genderMap['Keine Angabe']++;
+
+      // Nationality
+      if (data?.nationality) {
+        nationalityMap[data.nationality] = (nationalityMap[data.nationality] || 0) + 1;
+      }
+
+      // Marital Status
+      if (data?.maritalStatus) {
+        maritalMap[data.maritalStatus] = (maritalMap[data.maritalStatus] || 0) + 1;
+      }
+    });
+
+    // Convert to chart format
+    const ageGroups = Object.entries(ageMap)
+      .filter(([_, count]) => count > 0)
+      .map(([name, count]) => ({ name, count }));
+
+    const genders = Object.entries(genderMap)
+      .filter(([_, count]) => count > 0)
+      .map(([name, count]) => ({ name, count }));
+
+    const nationalities = Object.entries(nationalityMap)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([name, count]) => ({ name, count }));
+
+    const maritalStatuses = Object.entries(maritalMap)
+      .map(([name, count]) => ({ name, count }));
+
+    setDemographics({
+      ageGroups,
+      genders,
+      nationalities,
+      maritalStatuses,
+    });
   };
 
   const loadProgressData = async (clientId: string) => {
@@ -142,24 +245,131 @@ export default function StatisticsPage() {
 
       <Card sx={{ mb: 3 }}>
         <CardContent>
-          <FormControl fullWidth>
-            <InputLabel>Klient auswählen</InputLabel>
-            <Select
-              value={selectedClient}
-              label="Klient auswählen"
-              onChange={(e) => setSelectedClient(e.target.value)}
-            >
-              {clients.map((client) => (
-                <MenuItem key={client.id} value={client.id}>
-                  {client.name}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
+          <Grid container spacing={2}>
+            <Grid item xs={12} md={6}>
+              <ToggleButtonGroup
+                value={view}
+                exclusive
+                onChange={(_, newView) => newView && setView(newView)}
+                fullWidth
+              >
+                <ToggleButton value="demographics">
+                  Kunden-Zusammensetzung
+                </ToggleButton>
+                <ToggleButton value="progress">
+                  Fortschritte je Klient
+                </ToggleButton>
+              </ToggleButtonGroup>
+            </Grid>
+            {view === 'progress' && (
+              <Grid item xs={12} md={6}>
+                <FormControl fullWidth>
+                  <InputLabel>Klient auswählen</InputLabel>
+                  <Select
+                    value={selectedClient}
+                    label="Klient auswählen"
+                    onChange={(e) => setSelectedClient(e.target.value)}
+                  >
+                    {clients.map((client) => (
+                      <MenuItem key={client.id} value={client.id}>
+                        {client.name}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Grid>
+            )}
+          </Grid>
         </CardContent>
       </Card>
 
-      {progressData.length === 0 ? (
+      {view === 'demographics' ? (
+        <Grid container spacing={3}>
+          <Grid item xs={12} md={6}>
+            <Card>
+              <CardContent>
+                <Typography variant="h6" gutterBottom>
+                  Altersverteilung
+                </Typography>
+                <ResponsiveContainer width="100%" height={300}>
+                  <BarChart data={demographics.ageGroups}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="name" />
+                    <YAxis />
+                    <Tooltip />
+                    <Bar dataKey="count" fill="#1976d2" name="Anzahl" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+          </Grid>
+
+          <Grid item xs={12} md={6}>
+            <Card>
+              <CardContent>
+                <Typography variant="h6" gutterBottom>
+                  Geschlechterverteilung
+                </Typography>
+                <ResponsiveContainer width="100%" height={300}>
+                  <BarChart data={demographics.genders}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="name" />
+                    <YAxis />
+                    <Tooltip />
+                    <Bar dataKey="count" fill="#2e7d32" name="Anzahl" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+          </Grid>
+
+          <Grid item xs={12} md={6}>
+            <Card>
+              <CardContent>
+                <Typography variant="h6" gutterBottom>
+                  Top 5 Nationalitäten
+                </Typography>
+                {demographics.nationalities.length === 0 ? (
+                  <Typography color="text.secondary">Keine Daten verfügbar</Typography>
+                ) : (
+                  <ResponsiveContainer width="100%" height={300}>
+                    <BarChart data={demographics.nationalities}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="name" />
+                      <YAxis />
+                      <Tooltip />
+                      <Bar dataKey="count" fill="#ed6c02" name="Anzahl" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
+              </CardContent>
+            </Card>
+          </Grid>
+
+          <Grid item xs={12} md={6}>
+            <Card>
+              <CardContent>
+                <Typography variant="h6" gutterBottom>
+                  Familienstand
+                </Typography>
+                {demographics.maritalStatuses.length === 0 ? (
+                  <Typography color="text.secondary">Keine Daten verfügbar</Typography>
+                ) : (
+                  <ResponsiveContainer width="100%" height={300}>
+                    <BarChart data={demographics.maritalStatuses}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="name" />
+                      <YAxis />
+                      <Tooltip />
+                      <Bar dataKey="count" fill="#9c27b0" name="Anzahl" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
+              </CardContent>
+            </Card>
+          </Grid>
+        </Grid>
+      ) : progressData.length === 0 ? (
         <Card>
           <CardContent>
             <Typography color="text.secondary" align="center">

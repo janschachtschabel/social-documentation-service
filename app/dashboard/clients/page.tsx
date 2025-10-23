@@ -31,6 +31,7 @@ import {
   Visibility as VisibilityIcon,
   Person as PersonIcon,
   Event as EventIcon,
+  Delete as DeleteIcon,
 } from '@mui/icons-material';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/store/useAuthStore';
@@ -56,6 +57,7 @@ export default function ClientsPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
+  const [deletingClient, setDeletingClient] = useState<string | null>(null);
   const [audioChunks, setAudioChunks] = useState<Blob[]>([]);
 
   useEffect(() => {
@@ -142,6 +144,29 @@ export default function ClientsPage() {
       mediaRecorder.stream.getTracks().forEach((track) => track.stop());
       setIsRecording(false);
     }
+  };
+
+  const handleDeleteClient = async (clientId: string, clientName: string) => {
+    if (!confirm(`Möchten Sie den Klienten "${clientName}" wirklich löschen? Diese Aktion kann nicht rückgängig gemacht werden.`)) {
+      return;
+    }
+
+    setDeletingClient(clientId);
+    try {
+      const { error: deleteError } = await supabase
+        .from('clients')
+        .delete()
+        .eq('id', clientId);
+
+      if (deleteError) {
+        setError(deleteError.message);
+      } else {
+        loadClients();
+      }
+    } catch (err: any) {
+      setError(err.message || 'Fehler beim Löschen');
+    }
+    setDeletingClient(null);
   };
 
   const handleCreateClient = async () => {
@@ -238,6 +263,7 @@ export default function ClientsPage() {
                 <TableRow
                   key={client.id}
                   hover
+                  onClick={() => router.push(`/dashboard/clients/${client.id}`)}
                   sx={{ cursor: 'pointer', '&:hover': { backgroundColor: 'action.hover' } }}
                 >
                   <TableCell>
@@ -279,15 +305,35 @@ export default function ClientsPage() {
                     </Typography>
                   </TableCell>
                   <TableCell align="right">
-                    <Tooltip title="Details ansehen">
-                      <IconButton
-                        size="small"
-                        color="primary"
-                        onClick={() => router.push(`/dashboard/clients/${client.id}`)}
-                      >
-                        <VisibilityIcon />
-                      </IconButton>
-                    </Tooltip>
+                    <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end' }}>
+                      <Tooltip title="Details ansehen">
+                        <IconButton
+                          size="small"
+                          color="primary"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            router.push(`/dashboard/clients/${client.id}`);
+                          }}
+                        >
+                          <VisibilityIcon />
+                        </IconButton>
+                      </Tooltip>
+                      {user?.role === 'admin' && (
+                        <Tooltip title="Klient löschen">
+                          <IconButton
+                            size="small"
+                            color="error"
+                            disabled={deletingClient === client.id}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteClient(client.id, client.name);
+                            }}
+                          >
+                            <DeleteIcon />
+                          </IconButton>
+                        </Tooltip>
+                      )}
+                    </Box>
                   </TableCell>
                 </TableRow>
               ))

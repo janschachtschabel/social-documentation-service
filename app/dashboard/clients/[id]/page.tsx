@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import {
   Box,
   Button,
@@ -32,6 +32,7 @@ import {
 } from '@mui/icons-material';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/store/useAuthStore';
+import AnamnesisDialog, { AnamnesisData } from '@/components/AnamnesisDialog';
 
 interface Client {
   id: string;
@@ -61,6 +62,7 @@ interface Report {
 export default function ClientDetailPage() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const user = useAuthStore((state) => state.user);
   const clientId = params.id as string;
 
@@ -69,6 +71,7 @@ export default function ClientDetailPage() {
   const [reports, setReports] = useState<Report[]>([]);
   const [tabValue, setTabValue] = useState(0);
   const [openSessionDialog, setOpenSessionDialog] = useState(false);
+  const [openAnamnesisDialog, setOpenAnamnesisDialog] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [transcript, setTranscript] = useState('');
   const [loading, setLoading] = useState(false);
@@ -77,7 +80,12 @@ export default function ClientDetailPage() {
 
   useEffect(() => {
     loadClientData();
-  }, [clientId]);
+    
+    // Check URL parameter for anamnesis
+    if (searchParams?.get('anamnesis') === 'true') {
+      setOpenAnamnesisDialog(true);
+    }
+  }, [clientId, searchParams]);
 
   const loadClientData = async () => {
     // Load client
@@ -127,7 +135,31 @@ export default function ClientDetailPage() {
       };
 
       recorder.onstop = async () => {
-        setTranscript('Bitte geben Sie die Gesprächsnotizen manuell ein.');
+        const audioBlob = new Blob(chunks, { type: 'audio/webm' });
+        
+        setLoading(true);
+        try {
+          // Transcribe
+          const formData = new FormData();
+          formData.append('audio', audioBlob);
+
+          const transcribeResponse = await fetch('/api/transcribe', {
+            method: 'POST',
+            body: formData,
+          });
+
+          if (transcribeResponse.ok) {
+            const { transcript: transcribedText } = await transcribeResponse.json();
+            setTranscript(transcribedText);
+          } else {
+            setError('Fehler bei der Transkription');
+          }
+        } catch (err) {
+          setError('Fehler bei der Verarbeitung');
+        }
+        setLoading(false);
+
+        stream.getTracks().forEach((track) => track.stop());
       };
 
       setMediaRecorder(recorder);
@@ -141,7 +173,6 @@ export default function ClientDetailPage() {
   const stopRecording = () => {
     if (mediaRecorder && isRecording) {
       mediaRecorder.stop();
-      mediaRecorder.stream.getTracks().forEach((track) => track.stop());
       setIsRecording(false);
     }
   };
@@ -170,43 +201,69 @@ export default function ClientDetailPage() {
       }
 
       // Create session
-      const { error: insertError } = await supabase.from('sessions').insert({
-        client_id: clientId,
-        session_date: new Date().toISOString(),
-        current_status: parsed.current_status || '',
-        actions_taken: parsed.actions_taken || '',
-        next_steps: parsed.next_steps || '',
-        network_involvement: parsed.network_involvement || '',
-        raw_transcript: transcript,
-        created_by: user?.id,
-      });
+      const { data: sessionData, error: insertError } = await supabase
+        .from('sessions')
+        .insert({
+          client_id: clientId,
+          session_date: new Date().toISOString(),
+          current_status: parsed.current_status || '',
+          actions_taken: parsed.actions_taken || '',
+          next_steps: parsed.next_steps || '',
+          network_involvement: parsed.network_involvement || '',
+          raw_transcript: transcript,
+          created_by: user?.id,
+        })
+        .select()
+        .single();
 
       if (insertError) {
-        setError(insertError.message);
-      } else {
-        // Save progress indicators if available
-        if (parsed.progress_indicators) {
-          const indicators = Object.entries(parsed.progress_indicators)
-            .filter(([_, value]) => value !== null && value !== undefined)
-            .map(([type, value]) => ({
-              client_id: clientId,
-              session_id: 'temp', // Will be updated after session is created
-              indicator_type: type,
-              value: value as number,
-            }));
-
-          // In production, we'd get the session ID and insert indicators
-        }
-
-        setOpenSessionDialog(false);
-        setTranscript('');
-        loadClientData();
+        throw new Error(insertError.message);
       }
+
+      // Save progress indicators if available
+      if (parsed.progress_indicators && sessionData) {
+        const indicators = Object.entries(parsed.progress_indicators)
+          .filter(([_, value]) => value !== null && value !== undefined)
+          .map(([type, value]) => ({
+            client_id: clientId,
+            session_id: sessionData.id,
+            indicator_type: type,
+            value: value as number,
+          }));
+
+        if (indicators.length > 0) {
+          await supabase.from('progress_indicators').insert(indicators);
+        }
+      }
+
+      setOpenSessionDialog(false);
+      setTranscript('');
+      await loadClientData();
     } catch (err: any) {
       setError(err.message || 'Fehler beim Erstellen des Termins');
     }
 
     setLoading(false);
+  };
+
+  const handleSaveAnamnesis = async (data: AnamnesisData) => {
+    if (!client) return;
+
+    const updatedProfileData = {
+      ...client.profile_data,
+      anamnesis: data,
+    };
+
+    const { error: updateError } = await supabase
+      .from('clients')
+      .update({ profile_data: updatedProfileData })
+      .eq('id', clientId);
+
+    if (updateError) {
+      throw new Error(updateError.message);
+    }
+
+    await loadClientData();
   };
 
   const handleGenerateReport = async (reportType: 'anamnese' | 'interim' | 'final') => {
@@ -314,6 +371,16 @@ export default function ClientDetailPage() {
                   Aktionen
                 </Typography>
                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  {/* Anamnese VOR Terminen */}
+                  <Button
+                    variant={client.profile_data?.anamnesis ? 'outlined' : 'contained'}
+                    startIcon={<DescriptionIcon />}
+                    onClick={() => setOpenAnamnesisDialog(true)}
+                    color={client.profile_data?.anamnesis ? 'primary' : 'success'}
+                  >
+                    {client.profile_data?.anamnesis ? 'Anamnese bearbeiten' : 'Anamnese erstellen'}
+                  </Button>
+                  
                   <Button
                     variant="outlined"
                     startIcon={<AddIcon />}
@@ -321,14 +388,7 @@ export default function ClientDetailPage() {
                   >
                     Neuer Termin
                   </Button>
-                  <Button
-                    variant="outlined"
-                    startIcon={<DescriptionIcon />}
-                    onClick={() => handleGenerateReport('anamnese')}
-                    disabled={loading}
-                  >
-                    Anamnese erstellen
-                  </Button>
+                  
                   <Button
                     variant="outlined"
                     startIcon={<DescriptionIcon />}
@@ -486,6 +546,15 @@ export default function ClientDetailPage() {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Anamnesis Dialog */}
+      <AnamnesisDialog
+        open={openAnamnesisDialog}
+        onClose={() => setOpenAnamnesisDialog(false)}
+        onSave={handleSaveAnamnesis}
+        initialData={client?.profile_data?.anamnesis}
+        clientName={client?.name || ''}
+      />
     </Box>
   );
 }
