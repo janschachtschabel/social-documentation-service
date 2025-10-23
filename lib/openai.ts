@@ -153,17 +153,24 @@ export async function parseClientProfile(transcript: string): Promise<{ name: st
     messages: [
       {
         role: 'system',
-        content: `Du bist ein Assistent für Sozialarbeiter. Extrahiere aus dem Gespräch die Profildaten des Klienten.
-Mindestens der Name muss vorhanden sein. Weitere relevante Informationen können sein:
-- Alter
-- Geschlecht
-- Kontaktdaten
-- Wohnsituation
-- Familiensituation
-- Berufliche Situation
-- Besondere Umstände
+        content: `Du bist ein Assistent für Sozialarbeiter. Extrahiere aus dem Gespräch die strukturierten Profildaten des Klienten.
 
-Gib die Antwort als JSON mit den Feldern "name" (Pflicht) und "profile_data" (Objekt mit weiteren Informationen) zurück.`,
+Erforderliche Felder:
+- firstName (Vorname)
+- lastName (Nachname)
+
+Optionale Felder (wenn erwähnt):
+- email, phone
+- street, zipCode, city
+- dateOfBirth (Format: YYYY-MM-DD), age, gender (male/female/diverse/not_specified)
+- maritalStatus, children (Anzahl), nationality, germanLevel
+- residenceStatus, occupation, employmentStatus
+
+Gib die Antwort als JSON zurück mit:
+{
+  "name": "Vorname Nachname",
+  "profile_data": { alle extrahierten Felder }
+}`,
       },
       {
         role: 'user',
@@ -175,6 +182,90 @@ Gib die Antwort als JSON mit den Feldern "name" (Pflicht) und "profile_data" (Ob
 
   const result = completion.choices[0].message.content;
   return JSON.parse(result || '{"name": "", "profile_data": {}}');
+}
+
+export interface ParsedAnamnesis {
+  // Lebenssituation
+  housingSituation: string;
+  financialSituation: string;
+  healthStatus: string;
+  professionalSituation: string;
+  
+  // Familie & Kinder (ERWEITERT für Sozialpädagogik)
+  familySituation: string;
+  childrenSituation: string;  // NEU: Kinder-spezifisch
+  parentingSkills: string;     // NEU: Erziehungskompetenzen
+  childDevelopment: string;    // NEU: Entwicklungsstand der Kinder
+  
+  // Psychosoziale Situation (NEU)
+  psychologicalState: string;  // NEU: Psychologischer Zustand
+  socialNetwork: string;        // NEU: Soziales Netzwerk
+  crisesAndRisks: string;       // NEU: Krisen und Risikofaktoren
+  
+  // Ziele & Maßnahmen
+  goalsAndWishes: string;
+  previousMeasures: string;
+  additionalNotes?: string;
+}
+
+export async function parseAnamnesis(
+  transcript: string, 
+  existingData?: Partial<ParsedAnamnesis>
+): Promise<ParsedAnamnesis> {
+  const systemPrompt = `Du bist ein Assistent für Sozialpädagogik und Erziehungshilfe. Analysiere die Anamnese-Aufnahme und strukturiere sie in folgende Bereiche:
+
+**LEBENSSITUATION:**
+1. housingSituation: Wohnsituation (Wohnform, Platzverhältnisse, Ausstattung, Probleme, kindgerechte Umgebung)
+2. financialSituation: Finanzielle Situation (Einkommen, Schulden, laufende Kosten, finanzielle Unterstützung, wirtschaftliche Belastungen)
+3. healthStatus: Gesundheitszustand (körperliche und psychische Gesundheit, Behandlungen, Medikamente, Einschränkungen)
+4. professionalSituation: Berufliche Situation (Ausbildung, Beschäftigung, Arbeitszeiten, Vereinbarkeit Familie/Beruf)
+
+**FAMILIE & KINDER (Sozialpädagogischer Fokus):**
+5. familySituation: Familiäre Situation (Familienstruktur, Beziehungen, Konflikte, Unterstützungssysteme innerhalb der Familie)
+6. childrenSituation: Situation der Kinder (Anzahl, Alter, Betreuung, Schule/Kita, Auffälligkeiten, besondere Bedürfnisse)
+7. parentingSkills: Erziehungskompetenzen (Erziehungsverhalten, Grenzsetzung, emotionale Zuwendung, Überforderung, Ressourcen)
+8. childDevelopment: Entwicklungsstand der Kinder (körperliche, kognitive, emotionale und soziale Entwicklung, Entwicklungsverzögerungen, Förderbedarfe)
+
+**PSYCHOSOZIALE SITUATION:**
+9. psychologicalState: Psychologischer Zustand (emotionale Befindlichkeit, Belastungen, Bewältigungsstrategien, psychische Auffälligkeiten, Resilienz)
+10. socialNetwork: Soziales Netzwerk (Freunde, Verwandte, Nachbarn, Isolation, Unterstützungspersonen)
+11. crisesAndRisks: Krisen und Risikofaktoren (akute Krisen, Gewalt, Sucht, Vernachlässigung, Kindeswohlgefährdung)
+
+**ZIELE & MASSNAHMEN:**
+12. goalsAndWishes: Ziele und Wünsche (Was möchte die Familie/der Klient erreichen? Motivation zur Veränderung)
+13. previousMeasures: Bisherige Maßnahmen (Frühere Hilfen, Therapien, Beratungen, Jugendhilfe-Maßnahmen, Erfolge/Misserfolge)
+14. additionalNotes: Sonstige wichtige Informationen
+
+${existingData ? `
+**WICHTIG:** Es existieren bereits Daten. Ergänze oder aktualisiere nur die Bereiche, die im neuen Transkript erwähnt werden. Bestehende Informationen sollen ERHALTEN bleiben, nicht überschrieben werden, es sei denn, es gibt explizite Updates.
+
+Bestehende Daten:
+${JSON.stringify(existingData, null, 2)}
+
+Kombiniere die neuen Informationen MIT den bestehenden. Wenn ein Bereich im neuen Transkript nicht erwähnt wird, übernimm die bestehenden Daten.
+` : ''}
+
+Schreibe für jeden Bereich 2-5 vollständige, professionelle Sätze. Falls ein Bereich nicht erwähnt wird UND keine bestehenden Daten vorliegen, schreibe "Keine Angaben".
+
+Gib die Antwort als JSON zurück mit allen 14 Feldern.`;
+
+  const completion = await openai.chat.completions.create({
+    model: 'gpt-4-turbo-preview',
+    messages: [
+      {
+        role: 'system',
+        content: systemPrompt,
+      },
+      {
+        role: 'user',
+        content: transcript,
+      },
+    ],
+    response_format: { type: 'json_object' },
+  });
+
+  const result = completion.choices[0].message.content;
+  return JSON.parse(result || '{}');
 }
 
 export { openai };

@@ -1,3 +1,36 @@
+# SQL-Befehle für Supabase
+
+## 🎯 Für Ihr laufendes System (NICHTS ändern!)
+
+**Status:** ✅ Läuft bereits, keine Änderungen nötig!
+
+Die bestehende Datenbank unterstützt bereits alle neuen Features:
+- ✅ JSONB `profile_data` ist flexibel genug
+- ✅ Basisprofil (15 Felder) funktioniert
+- ✅ Anamnese (14 Bereiche) funktioniert
+- ✅ Keine Schema-Änderung erforderlich
+
+**Wenn Sie wollen:** Nur zur Dokumentation RLS-Fix ausführen (aber das läuft schon):
+
+```sql
+-- Nur zur Sicherheit (ist bereits so):
+ALTER TABLE profiles DISABLE ROW LEVEL SECURITY;
+```
+
+---
+
+## 🆕 Für NEUES Deployment (Leere Datenbank)
+
+Falls Sie die App komplett neu deployen oder jemand anderem geben:
+
+### **Kopieren Sie das komplette Schema und führen Sie es aus:**
+
+```sql
+-- ============================================
+-- SOCIAL DOCUMENTATION SERVICE - SCHEMA
+-- Vollständige Datenbank-Einrichtung
+-- ============================================
+
 -- Enable UUID extension
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
@@ -93,7 +126,7 @@ ALTER TABLE sessions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE reports ENABLE ROW LEVEL SECURITY;
 ALTER TABLE progress_indicators ENABLE ROW LEVEL SECURITY;
 
--- RLS Policies for profiles
+-- RLS Policies for profiles (werden nicht verwendet wegen DISABLE, aber zur Dokumentation)
 CREATE POLICY "Users can view their own profile" ON profiles
   FOR SELECT USING (auth.uid() = id);
 
@@ -245,28 +278,146 @@ CREATE TRIGGER update_sessions_updated_at BEFORE UPDATE ON sessions
 
 CREATE TRIGGER update_reports_updated_at BEFORE UPDATE ON reports
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+```
 
+**Nach dem Schema:** Test-Benutzer erstellen (siehe unten)
 
--- ============================================
--- TEST-BENUTZER (Optional - für Development)
--- ============================================
--- HINWEIS: Die UUIDs müssen mit den Auth-Users übereinstimmen!
--- Erstellen Sie zuerst die Auth-Users im Supabase Dashboard,
--- dann fügen Sie hier die Profile mit den korrekten UUIDs ein.
+---
 
--- Beispiel (mit Ihren aktuellen UUIDs):
--- INSERT INTO profiles (id, email, role, full_name)
--- VALUES (
---   '948aa437-4485-45e1-8ca7-7c06e29637cf',
---   'admin@example.com',
---   'admin',
---   'Administrator'
--- );
--- 
--- INSERT INTO profiles (id, email, role, full_name)
--- VALUES (
---   '5c4b90d6-c777-4187-9423-aa19d200fb98',
---   'sozial1@example.com',
---   'social_worker',
---   'Sozialarbeiter 1'
--- );
+## 👥 Test-Benutzer erstellen
+
+### **Schritt 1: Auth-Users im Supabase Dashboard**
+
+1. **Gehen Sie zu:** https://supabase.com/dashboard/project/IHRE_PROJECT_ID/auth/users
+2. **Klicken Sie "Add user" → "Create new user"**
+
+**Admin:**
+```
+Email: admin@example.com
+Password: wlo2025!
+✓ Auto Confirm User
+```
+
+**Kopieren Sie die UUID!** (z.B. `948aa437-4485-45e1-8ca7-7c06e29637cf`)
+
+**Sozialarbeiter:**
+```
+Email: sozial1@example.com
+Password: wlo2025!
+✓ Auto Confirm User
+```
+
+**Kopieren Sie die UUID!**
+
+### **Schritt 2: Profile in Datenbank (SQL Editor)**
+
+```sql
+-- Admin-Profil (UUID anpassen!)
+INSERT INTO profiles (id, email, role, full_name)
+VALUES (
+  'IHRE_ADMIN_UUID_HIER',  -- ← UUID aus Schritt 1
+  'admin@example.com',
+  'admin',
+  'Administrator'
+);
+
+-- Sozialarbeiter-Profil (UUID anpassen!)
+INSERT INTO profiles (id, email, role, full_name)
+VALUES (
+  'IHRE_SOZIALARBEITER_UUID_HIER',  -- ← UUID aus Schritt 1
+  'sozial1@example.com',
+  'social_worker',
+  'Sozialarbeiter 1'
+);
+```
+
+---
+
+## ✅ Verifizierung
+
+Nach dem Setup:
+
+```sql
+-- Prüfen ob Tabellen existieren:
+SELECT table_name 
+FROM information_schema.tables 
+WHERE table_schema = 'public';
+
+-- Sollte zeigen:
+-- profiles
+-- clients
+-- sessions
+-- reports
+-- progress_indicators
+
+-- Prüfen ob Benutzer existieren:
+SELECT * FROM profiles;
+
+-- Sollte 2 Zeilen zeigen (admin + sozial1)
+```
+
+---
+
+## 📊 Datenstruktur-Beispiel
+
+**Klient mit vollem Profil + Anamnese:**
+
+```sql
+-- Beispiel INSERT für Test-Klient:
+INSERT INTO clients (name, profile_data, created_by)
+VALUES (
+  'Max Mustermann',
+  '{
+    "firstName": "Max",
+    "lastName": "Mustermann",
+    "email": "max@example.com",
+    "phone": "030-12345678",
+    "street": "Musterstraße 12",
+    "zipCode": "10115",
+    "city": "Berlin",
+    "dateOfBirth": "1990-05-15",
+    "age": "35",
+    "gender": "male",
+    "maritalStatus": "verheiratet",
+    "children": "2",
+    "nationality": "deutsch",
+    "germanLevel": "Muttersprache",
+    "residenceStatus": "unbefristet",
+    "occupation": "Bäcker",
+    "employmentStatus": "arbeitslos",
+    "anamnesis": {
+      "housingSituation": "Die Familie lebt in einer 3-Zimmer-Wohnung in einem Hochhaus...",
+      "financialSituation": "Die finanzielle Situation ist angespannt durch Schulden...",
+      "healthStatus": "Körperlich gesund, psychisch belastet durch Arbeitslosigkeit...",
+      "professionalSituation": "Ausgebildeter Bäcker, seit 6 Monaten arbeitslos...",
+      "familySituation": "Verheiratet, gute Beziehung zur Ehefrau...",
+      "childrenSituation": "Zwei Kinder, 5 und 8 Jahre alt, besuchen Kita und Grundschule...",
+      "parentingSkills": "Beide Eltern zeigen sich bemüht, teilweise überfordert...",
+      "childDevelopment": "Das ältere Kind zeigt leichte Entwicklungsverzögerungen...",
+      "psychologicalState": "Herr Mustermann zeigt Anzeichen von Depression...",
+      "socialNetwork": "Soziales Netzwerk ist klein, wenig Kontakte außer Familie...",
+      "crisesAndRisks": "Keine akuten Krisen, Risiko der finanziellen Überschuldung...",
+      "goalsAndWishes": "Wünscht sich baldige Wiedereingliederung in den Arbeitsmarkt...",
+      "previousMeasures": "Teilnahme an Bewerbungstraining im letzten Jahr...",
+      "additionalNotes": "Kooperativ und motiviert.",
+      "rawTranscript": "Original-Aufnahme der Anamnese..."
+    }
+  }',
+  'ADMIN_UUID'
+);
+```
+
+---
+
+## 🚀 Zusammenfassung
+
+| Aktion | SQL-Befehl | Wann? |
+|--------|-----------|-------|
+| **Ihr laufendes System** | Nichts | ✅ Läuft bereits |
+| **Neues Deployment** | Komplettes Schema (oben) | Neue Datenbank |
+| **Test-User** | INSERT Statements | Nach Schema |
+| **Verifizierung** | SELECT Statements | Nach Setup |
+
+---
+
+**Das Schema ist jetzt auf dem neuesten Stand und bereit für alle Features!** 🎉

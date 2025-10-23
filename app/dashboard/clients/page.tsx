@@ -205,7 +205,7 @@ export default function ClientsPage() {
         <Button
           variant="contained"
           startIcon={<AddIcon />}
-          onClick={() => setOpenDialog(true)}
+          onClick={() => router.push('/dashboard/clients/new')}
         >
           Neuer Klient
         </Button>
